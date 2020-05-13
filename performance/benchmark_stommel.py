@@ -6,7 +6,7 @@ Date: 11-02-2020
 from parcels import AdvectionEE, AdvectionRK45, AdvectionRK4
 from parcels import FieldSet, ParticleSet, ScipyParticle, JITParticle, Variable, AdvectionRK4, RectilinearZGrid, ErrorCode
 from parcels.field import Field, VectorField, NestedField, SummedField
-from parcels import plotTrajectoriesFile_loadedField
+# from parcels import plotTrajectoriesFile_loadedField
 from datetime import timedelta as delta
 import math
 from argparse import ArgumentParser
@@ -20,7 +20,6 @@ import gc
 import os
 import time as ostime
 import matplotlib.pyplot as plt
-from parcels.tools import perlin3d
 
 from parcels import rng as random
 
@@ -501,16 +500,15 @@ if __name__=='__main__':
         avg_time = np.mean(np.array(dt_time, dtype=np.float64))
         sys.stdout.write("Avg. kernel update time: {} msec.\n".format(avg_time * 1000.0))
 
-    if args.write_out:
-        output_file.close()
-        if args.visualize:
-            if MPI:
-                mpi_comm = MPI.COMM_WORLD
-                if mpi_comm.Get_rank() == 0:
-                    plotTrajectoriesFile_loadedField(os.path.join(odir, out_fname+".nc"),
-                                                     tracerfield=fieldset.U)
-            else:
-                plotTrajectoriesFile_loadedField(os.path.join(odir, out_fname+".nc"),tracerfield=fieldset.U)
+    # if args.write_out:
+    #     output_file.close()
+    #     if args.visualize:
+    #         if MPI:
+    #             mpi_comm = MPI.COMM_WORLD
+    #             if mpi_comm.Get_rank() == 0:
+    #                 plotTrajectoriesFile_loadedField(os.path.join(odir, out_fname+".nc"), tracerfield=fieldset.U)
+    #         else:
+    #             plotTrajectoriesFile_loadedField(os.path.join(odir, out_fname+".nc"),tracerfield=fieldset.U)
 
     if MPI:
         mpi_comm = MPI.COMM_WORLD
