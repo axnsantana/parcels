@@ -1,5 +1,6 @@
-from parcels import (FieldSet, ParticleSet, Field, ScipyParticle, JITParticle,
+from parcels import (FieldSet, Field, ScipyParticle, JITParticle,
                      Variable, ErrorCode, CurvilinearZGrid)
+from parcels.particleset_vectorized import ParticleSet
 import numpy as np
 import pytest
 
