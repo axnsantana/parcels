@@ -3,6 +3,14 @@ from parcels import (FieldSet, ScipyParticle, JITParticle, ErrorCode, KernelErro
 from parcels.particleset_vectorized import ParticleSet
 import numpy as np
 import pytest
+from parcels.tools import idgen
+from parcels.tools import logger
+from os import getpid
+
+try:
+    from mpi4py import MPI
+except:
+    MPI = None
 
 
 ptype = {'scipy': ScipyParticle, 'jit': JITParticle}
@@ -280,3 +288,38 @@ def test_execution_keep_cfiles_and_nocompilation_warnings(fieldset, delete_cfile
         assert path.exists(cfile)
         with open(logfile) as f:
             assert 'warning' not in f.read(), 'Compilation WARNING in log file'
+
+
+
+def run_test_execution_runtime(fset, mode, start, end, substeps, dt, npart=10):
+    pset = ParticleSet(fset, pclass=ptype[mode], time=start,
+                       lon=np.linspace(0, 1, npart),
+                       lat=np.linspace(1, 0, npart))
+    t_step = abs(end - start) / substeps
+    for _ in range(substeps):
+        pset.execute(DoNothing, runtime=t_step, dt=dt)
+    if MPI is None:
+        assert np.allclose(np.array([p.time for p in pset]), end)
+        logger.info(
+            "Completed run (mode={}; start={}; end={}; substep={}; dt={}) on process (pid={})".format(mode, start, end, substeps, dt, getpid()))
+    else:
+        mpi_comm = MPI.COMM_WORLD
+        mpi_rank = mpi_comm.Get_rank()
+        logger.info("Completed run (mode={}; start={}; end={}; substep={}; dt={}) on processor {} (pid={})".format(mode, start, end, substeps, dt, mpi_rank, getpid()))
+
+
+if __name__ == '__main__':
+    fset = fieldset()
+    run_test_execution_runtime(fset, 'jit', 0., 10., 1, 1.)
+    run_test_execution_runtime(fset, 'jit', 0., 10., 4, 1.)
+    run_test_execution_runtime(fset, 'jit', 0., 10., 1, 3.)
+    run_test_execution_runtime(fset, 'jit', 2., 16., 5, 3.)
+    run_test_execution_runtime(fset, 'jit', 20., 10., 4, -1.)
+    run_test_execution_runtime(fset, 'jit', 20., -10., 7, -2.)
+    run_test_execution_runtime(fset, 'scipy', 0., 10., 1, 1.)
+    run_test_execution_runtime(fset, 'scipy', 0., 10., 4, 1.)
+    run_test_execution_runtime(fset, 'scipy', 0., 10., 1, 3.)
+    run_test_execution_runtime(fset, 'scipy', 2., 16., 5, 3.)
+    run_test_execution_runtime(fset, 'scipy', 20., 10., 4, -1.)
+    run_test_execution_runtime(fset, 'scipy', 20., -10., 7, -2.)
+    # idgen.close()
