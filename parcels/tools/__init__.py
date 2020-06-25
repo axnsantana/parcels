@@ -9,5 +9,6 @@ from .id_generators import *  # noga
 # global idgen
 # idgen = SpatioTemporalIdGenerator()
 idgen = GenerateID_Service(SpatioTemporalIdGenerator)
+# idgen = GenerateID_Service(SequentialIdGenerator)
 idgen.setDepthLimits(0, 100.0)
 idgen.setTimeLine(0, 240.0)
