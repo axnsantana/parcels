@@ -6,7 +6,6 @@ from .timer import *  # noqa
 from .global_statics import *  # noga
 from .id_generators import *  # noga
 
-# global idgen
 # idgen = SpatioTemporalIdGenerator()
 idgen = GenerateID_Service(SpatioTemporalIdGenerator)
 # idgen = GenerateID_Service(SequentialIdGenerator)
