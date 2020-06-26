@@ -58,7 +58,6 @@ class PerformanceLog():
     samples = []
     times_steps = []
     memory_steps = []
-    #self.fds_steps = []
     Nparticles_step = []
     _iter = 0
 
@@ -73,7 +72,6 @@ class PerformanceLog():
                 Nparticles_local = len(pset)
                 Nparticles_global = mpi_comm.reduce(Nparticles_local, op=MPI.SUM, root=0)
             if mpi_rank == 0:
-                #self.times_steps.append(MPI.Wtime())
                 self.times_steps.append(ostime.process_time())
                 self.memory_steps.append(mem_B_used_total)
                 if pset is not None:
@@ -82,13 +80,93 @@ class PerformanceLog():
                 self._iter+=1
         else:
             process = psutil.Process(os.getpid())
-            #self.times_steps.append(ostime.time())
             self.times_steps.append(ostime.process_time())
             self.memory_steps.append(process.memory_info().rss)
             if pset is not None:
                 self.Nparticles_step.append(len(pset))
             self.samples.append(self._iter)
             self._iter+=1
+
+def plot_internal(total_times = None, compute_times = None, io_times = None, memory_used = None, nparticles = None, imageFilePath = ""):
+    if total_times is None:
+        total_times = []
+    if compute_times is None:
+        compute_times = []
+    if io_times is None:
+        io_times = []
+    if memory_used is None:
+        memory_used = []
+    if nparticles is None:
+        nparticles = []
+    plot_t = []
+    plot_ct = []
+    plot_iot = []
+    plot_npart = []
+    cum_t = 0
+    cum_ct = 0
+    cum_iot = 0
+    t_scaler = 1. * 10./1.0
+    npart_scaler = 1.0 / 1000.0
+    for i in range(0, len(total_times)):
+        plot_t.append( total_times[i]*t_scaler )
+        cum_t += (total_times[i])
+
+    for i in range(0, len(compute_times)):
+        plot_ct.append(compute_times[i] * t_scaler)
+        cum_ct += compute_times[i]
+    for i in range(0, len(io_times)):
+        plot_iot.append(io_times[i] * t_scaler)
+        cum_iot += io_times[i]
+    for i in range(0, len(nparticles)):
+        plot_npart.append(nparticles[i] * npart_scaler)
+
+    if memory_used is not None:
+        #mem_scaler = (1*10)/(1024*1024*1024)
+        mem_scaler = 1 / (1024 * 1024 * 1024)
+        plot_mem = []
+        for i in range(0, len(memory_used)):
+            plot_mem.append(memory_used[i] * mem_scaler)
+
+    do_iot_plot = True
+    do_mem_plot = True
+    do_npart_plot = True
+    assert (len(plot_t) == len(plot_ct))
+    # assert (len(plot_t) == len(plot_iot))
+    if len(plot_t) != len(plot_iot):
+        print("plot_t and plot_iot have different lengths ({} vs {})".format(len(plot_t), len(plot_iot)))
+        do_iot_plot = False
+    # assert (len(plot_t) == len(plot_mem))
+    if len(plot_t) != len(plot_mem):
+        print("plot_t and plot_mem have different lengths ({} vs {})".format(len(plot_t), len(plot_mem)))
+        do_mem_plot = False
+    # assert (len(plot_t) == len(plot_npart))
+    if len(plot_t) != len(plot_npart):
+        print("plot_t and plot_npart have different lengths ({} vs {})".format(len(plot_t), len(plot_npart)))
+        do_npart_plot = False
+    x = []
+    for i in range(len(plot_t)):
+        x.append(i)
+
+    fig, ax = plt.subplots(1, 1, figsize=(21, 12))
+    ax.plot(x, plot_t, 'o-', label="total time_spent [100ms]")
+    ax.plot(x, plot_ct, 'o-', label="compute time_spent [100ms]")
+    # == this is still the part that breaks - as they are on different time scales, possibly leave them out ? == #
+    if do_iot_plot:
+        ax.plot(x, plot_iot, 'o-', label="io time_spent [100ms]")
+    if (memory_used is not None) and do_mem_plot:
+        #ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [100 MB]")
+        ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [1 GB]")
+    if do_npart_plot:
+        ax.plot(x, plot_npart, '-', label="sim. particles [# 1000]")
+    plt.xlim([0, 730])
+    plt.ylim([0, 120])
+    plt.legend()
+    ax.set_xlabel('iteration')
+    plt.savefig(os.path.join(odir, imageFilePath), dpi=600, format='png')
+
+    sys.stdout.write("cumulative total runtime: {}\n".format(cum_t))
+    sys.stdout.write("cumulative compute time: {}\n".format(cum_ct))
+    sys.stdout.write("cumulative I/O time: {}\n".format(cum_iot))
 
 def plot(x, times, memory_used, nparts, imageFilePath):
     plot_t = []
@@ -312,8 +390,8 @@ if __name__=='__main__':
             sys.stdout.write("N: {}\n".format(Nparticle))
 
     dt_minutes = 60
-    #dt_minutes = 20
-    #random.seed(123456)
+    # dt_minutes = 20
+    # random.seed(123456)
     nowtime = datetime.datetime.now()
     random.seed(nowtime.microsecond)
 
@@ -344,11 +422,8 @@ if __name__=='__main__':
         mpi_comm = MPI.COMM_WORLD
         mpi_rank = mpi_comm.Get_rank()
         if mpi_rank==0:
-            # global_t_0 = ostime.time()
-            # global_t_0 = MPI.Wtime()
             global_t_0 = ostime.process_time()
     else:
-        # global_t_0 = ostime.time()
         global_t_0 = ostime.process_time()
 
     simStart = None
@@ -376,15 +451,47 @@ if __name__=='__main__':
         if agingParticles:
             if repeatdtFlag:
                 pset = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(start_N_particles, 1) * a, lat=np.random.rand(start_N_particles, 1) * b, time=simStart, repeatdt=delta(minutes=repeatRateMinutes))
-                psetA = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
-                pset.add(psetA)
+                # psetA = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
+                # pset.add(psetA)
+
+                # for i in range(int(Nparticle/2.0)):
+                #     lon = np.random.random() * a
+                #     lat = np.random.random() * b
+                #     pdepth = 0
+                #     ptime = simStart
+                #     pindex = idgen.total_length
+                #     pid = idgen.nextID(lon, lat, pdepth, ptime)
+                #     pdata = age_ptype[(args.compute_mode).lower()](lon=lon, lat=lat, pid=pid, fieldset=fieldset, depth=pdepth, time=ptime, index=pindex)
+                #     pset.add(pdata)
+
+                lonlat_field = np.random.rand(int(Nparticle/2.0), 2)
+                lonlat_field *= np.array([a, b])
+                time_field = np.ones((int(Nparticle/2.0), 1), dtype=np.float64) * simStart
+                pdata = np.concatenate( (lonlat_field, time_field), axis=1 )
+                pset.add(pdata)
             else:
                 pset = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(Nparticle, 1) * a, lat=np.random.rand(Nparticle, 1) * b, time=simStart)
         else:
             if repeatdtFlag:
                 pset = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(start_N_particles, 1) * a, lat=np.random.rand(start_N_particles, 1) * b, time=simStart, repeatdt=delta(minutes=repeatRateMinutes))
-                psetA = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
-                pset.add(psetA)
+                # psetA = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
+                # pset.add(psetA)
+
+                # for i in range(int(Nparticle/2.0)):
+                #     lon = np.random.random() * a
+                #     lat = np.random.random() * b
+                #     pdepth = 0
+                #     ptime = simStart
+                #     pindex = idgen.total_length
+                #     pid = idgen.nextID(lon, lat, pdepth, ptime)
+                #     pdata = ptype[(args.compute_mode).lower()](lon=lon, lat=lat, pid=pid, fieldset=fieldset, depth=pdepth, time=ptime, index=pindex)
+                #     pset.add(pdata)
+
+                lonlat_field = np.random.rand(int(Nparticle/2.0), 2)
+                lonlat_field *= np.array([a, b])
+                time_field = np.ones((int(Nparticle/2.0), 1), dtype=np.float64) * simStart
+                pdata = np.concatenate( (lonlat_field, time_field), axis=1 )
+                pset.add(pdata)
             else:
                 pset = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(Nparticle, 1) * a, lat=np.random.rand(Nparticle, 1) * b, time=simStart)
     else:
@@ -392,15 +499,47 @@ if __name__=='__main__':
         if agingParticles:
             if repeatdtFlag:
                 pset = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(start_N_particles, 1) * a, lat=np.random.rand(start_N_particles, 1) * b, time=simStart, repeatdt=delta(minutes=repeatRateMinutes))
-                psetA = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
-                pset.add(psetA)
+                # psetA = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
+                # pset.add(psetA)
+
+                # for i in range(int(Nparticle/2.0)):
+                #     lon = np.random.random() * a
+                #     lat = np.random.random() * b
+                #     pdepth = 0
+                #     ptime = simStart
+                #     pindex = idgen.total_length
+                #     pid = idgen.nextID(lon, lat, pdepth, ptime)
+                #     pdata = age_ptype[(args.compute_mode).lower()](lon=lon, lat=lat, pid=pid, fieldset=fieldset, depth=pdepth, time=ptime, index=pindex)
+                #     pset.add(pdata)
+
+                lonlat_field = np.random.rand(int(Nparticle/2.0), 2)
+                lonlat_field *= np.array([a, b])
+                time_field = np.ones((int(Nparticle/2.0), 1), dtype=np.float64) * simStart
+                pdata = np.concatenate( (lonlat_field, time_field), axis=1 )
+                pset.add(pdata)
             else:
                 pset = ParticleSet(fieldset=fieldset, pclass=age_ptype[(args.compute_mode).lower()], lon=np.random.rand(Nparticle, 1) * a, lat=np.random.rand(Nparticle, 1) * b, time=simStart)
         else:
             if repeatdtFlag:
                 pset = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(start_N_particles, 1) * a, lat=np.random.rand(start_N_particles, 1) * b, time=simStart, repeatdt=delta(minutes=repeatRateMinutes))
-                psetA = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
-                pset.add(psetA)
+                # psetA = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(int(Nparticle/2.0), 1) * a, lat=np.random.rand(int(Nparticle/2.0), 1) * b, time=simStart)
+                # pset.add(psetA)
+
+                # for i in range(int(Nparticle/2.0)):
+                #     lon = np.random.random() * a
+                #     lat = np.random.random() * b
+                #     pdepth = 0
+                #     ptime = simStart
+                #     pindex = idgen.total_length
+                #     pid = idgen.nextID(lon, lat, pdepth, ptime)
+                #     pdata = ptype[(args.compute_mode).lower()](lon=lon, lat=lat, pid=pid, fieldset=fieldset, depth=pdepth, time=ptime, index=pindex)
+                #     pset.add(pdata)
+
+                lonlat_field = np.random.rand(int(Nparticle/2.0), 2)
+                lonlat_field *= np.array([a, b])
+                time_field = np.ones((int(Nparticle/2.0), 1), dtype=np.float64) * simStart
+                pdata = np.concatenate( (lonlat_field, time_field), axis=1 )
+                pset.add(pdata)
             else:
                 pset = ParticleSet(fieldset=fieldset, pclass=ptype[(args.compute_mode).lower()], lon=np.random.rand(Nparticle, 1) * a, lat=np.random.rand(Nparticle, 1) * b, time=simStart)
 
@@ -439,8 +578,9 @@ if __name__=='__main__':
     if args.delete_particle:
         delete_func=DeleteParticle
 
-    perflog = PerformanceLog()
-    postProcessFuncs = [perflog.advance,]
+    # perflog = PerformanceLog()
+    # postProcessFuncs = [perflog.advance,]
+    postProcessFuncs = []
 
     if MPI:
         mpi_comm = MPI.COMM_WORLD
@@ -474,11 +614,8 @@ if __name__=='__main__':
         mpi_comm = MPI.COMM_WORLD
         mpi_rank = mpi_comm.Get_rank()
         if mpi_rank==0:
-            # endtime = ostime.time()
-            # endtime = MPI.Wtime()
             endtime = ostime.process_time()
     else:
-        #endtime = ostime.time()
         endtime = ostime.process_time()
 
     # if MPI:
@@ -537,10 +674,16 @@ if __name__=='__main__':
 
     if MPI:
         mpi_comm = MPI.COMM_WORLD
-        mpi_comm.Barrier()
+        Nparticles = mpi_comm.reduce(np.array(pset.nparticle_log.get_params()), op=MPI.SUM, root=0)
+        Nmem = mpi_comm.reduce(np.array(pset.mem_log.get_params()), op=MPI.SUM, root=0)
         if mpi_comm.Get_rank() == 0:
-            plot(perflog.samples, perflog.times_steps, perflog.memory_steps, perflog.Nparticles_step, os.path.join(odir, imageFileName))
+            # plot(perflog.samples, perflog.times_steps, perflog.memory_steps, perflog.Nparticles_step, os.path.join(odir, imageFileName))
+            # plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
+            plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), Nmem, Nparticles, imageFileName)
     else:
-        plot(perflog.samples, perflog.times_steps, perflog.memory_steps, perflog.Nparticles_step, os.path.join(odir, imageFileName))
-
+        # plot(perflog.samples, perflog.times_steps, perflog.memory_steps, perflog.Nparticles_step, os.path.join(odir, imageFileName))
+        plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
+    # idgen.close()
+    # del idgen
+    exit(0)
 
