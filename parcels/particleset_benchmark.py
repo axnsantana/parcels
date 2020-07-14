@@ -6,7 +6,6 @@ import os
 
 
 import numpy as np
-import progressbar
 
 try:
     from mpi4py import MPI
@@ -22,6 +21,7 @@ from parcels.tools.loggers import logger
 
 __all__ = ['ParticleSet_Benchmark']
 
+
 class ParticleSet_TimingLog():
     stime = 0
     etime = 0
@@ -35,8 +35,8 @@ class ParticleSet_TimingLog():
             mpi_comm = MPI.COMM_WORLD
             mpi_rank = mpi_comm.Get_rank()
             if mpi_rank == 0:
-                #self.stime = MPI.Wtime()
-                #self.stime = time_module.perf_counter()
+                # self.stime = MPI.Wtime()
+                # self.stime = time_module.perf_counter()
                 self.stime = time_module.process_time()
         else:
             self.stime = time_module.perf_counter()
@@ -46,8 +46,8 @@ class ParticleSet_TimingLog():
             mpi_comm = MPI.COMM_WORLD
             mpi_rank = mpi_comm.Get_rank()
             if mpi_rank == 0:
-                #self.etime = MPI.Wtime()
-                #self.etime = time_module.perf_counter()
+                # self.etime = MPI.Wtime()
+                # self.etime = time_module.perf_counter()
                 self.etime = time_module.process_time()
         else:
             self.etime = time_module.perf_counter()
@@ -70,13 +70,14 @@ class ParticleSet_TimingLog():
             if mpi_rank == 0:
                 self.times_steps.append(self.mtime)
                 self.samples.append(self._iter)
-                self._iter+=1
+                self._iter += 1
             self.mtime = 0
         else:
             self.times_steps.append(self.mtime)
             self.samples.append(self._iter)
-            self._iter+=1
+            self._iter += 1
             self.mtime = 0
+
 
 class ParticleSet_ParamLogging():
     samples = []
@@ -90,11 +91,11 @@ class ParticleSet_ParamLogging():
             if mpi_rank == 0:
                 self.params.append(param)
                 self.samples.append(self._iter)
-                self._iter+=1
+                self._iter += 1
         else:
             self.params.append(param)
             self.samples.append(self._iter)
-            self._iter+=1
+            self._iter += 1
 
 
 class ParticleSet_Benchmark(ParticleSet):
@@ -110,7 +111,6 @@ class ParticleSet_Benchmark(ParticleSet):
         self.process = psutil.Process(os.getpid())
         self.mem_log = ParticleSet_ParamLogging()
 
-    #@profile
     def execute(self, pyfunc=AdvectionRK4, endtime=None, runtime=None, dt=1.,
                 moviedt=None, recovery=None, output_file=None, movie_background_field=None,
                 verbose_progress=None, postIterationCallbacks=None, callbackdt=None):
