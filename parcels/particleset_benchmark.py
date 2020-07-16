@@ -26,9 +26,34 @@ class ParticleSet_TimingLog():
     stime = 0
     etime = 0
     mtime = 0
-    samples = []
-    times_steps = []
+    _samples = []
+    _times_steps = []
     _iter = 0
+
+    def __init__(self):
+        self.stime = 0
+        self.etime = 0
+        self.mtime = 0
+        self._samples = []
+        self._times_steps = []
+        self._iter = 0
+
+    @property
+    def timing(self):
+        return self._times_steps
+
+    @property
+    def samples(self):
+        return self._samples
+
+    def __len__(self):
+        return len(self._samples)
+
+    def get_values(self):
+        return self._times_steps
+
+    def get_value(self, index):
+        return self._times_steps[index]
 
     def start_timing(self):
         if MPI:
@@ -68,33 +93,55 @@ class ParticleSet_TimingLog():
             mpi_comm = MPI.COMM_WORLD
             mpi_rank = mpi_comm.Get_rank()
             if mpi_rank == 0:
-                self.times_steps.append(self.mtime)
-                self.samples.append(self._iter)
+                self._times_steps.append(self.mtime)
+                self._samples.append(self._iter)
                 self._iter += 1
             self.mtime = 0
         else:
-            self.times_steps.append(self.mtime)
-            self.samples.append(self._iter)
+            self._times_steps.append(self.mtime)
+            self._samples.append(self._iter)
             self._iter += 1
             self.mtime = 0
 
 
 class ParticleSet_ParamLogging():
-    samples = []
-    params = []
+    _samples = []
+    _params = []
     _iter = 0
+
+    def __init__(self):
+        self._samples = []
+        self._params = []
+        self._iter = 0
+
+    @property
+    def samples(self):
+        return self._samples
+
+    @property
+    def params(self):
+        return self._params
+
+    def get_params(self):
+        return self._params
+
+    def get_param(self, index):
+        return self._params[index]
+
+    def __len__(self):
+        return len(self._samples)
 
     def advance_iteration(self, param):
         if MPI:
             mpi_comm = MPI.COMM_WORLD
             mpi_rank = mpi_comm.Get_rank()
             if mpi_rank == 0:
-                self.params.append(param)
-                self.samples.append(self._iter)
+                self._params.append(param)
+                self._samples.append(self._iter)
                 self._iter += 1
         else:
-            self.params.append(param)
-            self.samples.append(self._iter)
+            self._params.append(param)
+            self._samples.append(self._iter)
             self._iter += 1
 
 
@@ -108,8 +155,8 @@ class ParticleSet_Benchmark(ParticleSet):
         self.io_log = ParticleSet_TimingLog()
         self.plot_log = ParticleSet_TimingLog()
         self.nparticle_log = ParticleSet_ParamLogging()
-        self.process = psutil.Process(os.getpid())
         self.mem_log = ParticleSet_ParamLogging()
+        self.process = psutil.Process(os.getpid())
 
     def execute(self, pyfunc=AdvectionRK4, endtime=None, runtime=None, dt=1.,
                 moviedt=None, recovery=None, output_file=None, movie_background_field=None,
@@ -139,8 +186,11 @@ class ParticleSet_Benchmark(ParticleSet):
         :param movie_background_field: field plotted as background in the movie if moviedt is set.
                                        'vector' shows the velocity as a vector field.
         :param verbose_progress: Boolean for providing a progress bar for the kernel execution loop.
-        :param postIterationCallbacks: (Optional) Array of functions that are to be called after each iteration (post-process, non-Kernel)
-        :param callbackdt: (Optional, in conjecture with 'postIterationCallbacks) timestep inverval to (latestly) interrupt the running kernel and invoke post-iteration callbacks from 'postIterationCallbacks'
+        :param postIterationCallbacks: (Optional) Array of functions that are to be called after each
+                                        iteration (post-process, non-Kernel)
+        :param callbackdt: (Optional, in conjecture with 'postIterationCallbacks) timestep inverval
+                            to (latestly) interrupt the running kernel and invoke post-iteration
+                            callbacks from 'postIterationCallbacks'.
         """
 
         # check if pyfunc has changed since last compile. If so, recompile
@@ -183,10 +233,11 @@ class ParticleSet_Benchmark(ParticleSet):
         assert moviedt is None or moviedt >= 0, 'moviedt must be positive'
 
         # Set particle.time defaults based on sign of dt, if not set at ParticleSet construction
-        for p in self:
-            if np.isnan(p.time):
-                mintime, maxtime = self.fieldset.gridset.dimrange('time_full')
-                p.time = mintime if dt >= 0 else maxtime
+        for sublist in self._plist:
+            for p in sublist:
+                if np.isnan(p.time):
+                    mintime, maxtime = self.fieldset.gridset.dimrange('time_full')
+                    p.time = mintime if dt >= 0 else maxtime
 
         # Derive _starttime and endtime from arguments or fieldset defaults
         if runtime is not None and endtime is not None:
@@ -194,7 +245,8 @@ class ParticleSet_Benchmark(ParticleSet):
         # ====================================== #
         # ==== EXPENSIVE LIST COMPREHENSION ==== #
         # ====================================== #
-        _starttime = min([p.time for p in self]) if dt >= 0 else max([p.time for p in self])
+        # _starttime = min([p.time for p in self]) if dt >= 0 else max([p.time for p in self])
+        _starttime = min([p.time for sublist in self._plist for p in sublist]) if dt >= 0 else max([p.time for sublist in self._plist for p in sublist])
         if self.repeatdt is not None and self.repeat_starttime is None:
             self.repeat_starttime = _starttime
         if runtime is not None:
@@ -213,8 +265,10 @@ class ParticleSet_Benchmark(ParticleSet):
             execute_once = True
 
         # Initialise particle timestepping
-        for p in self:
-            p.dt = dt
+        # for p in self:
+        for sublist in self._plist:
+            for p in sublist:
+                p.dt = dt
 
         # First write output_file, because particles could have been added
         if output_file:
@@ -266,8 +320,11 @@ class ParticleSet_Benchmark(ParticleSet):
                                        lat=self.repeatlat, depth=self.repeatdepth,
                                        pclass=self.repeatpclass, lonlatdepth_dtype=self.lonlatdepth_dtype,
                                        partitions=False, pid_orig=self.repeatpid, **self.repeatkwargs)
-                for p in pset_new:
-                    p.dt = dt
+                # for p in pset_new:
+                #     p.dt = dt
+                for sublist in pset_new.particles_a:
+                    for p in sublist:
+                        p.dt = dt
                 self.add(pset_new)
                 next_prelease += self.repeatdt * np.sign(dt)
             self.compute_log.stop_timing()
@@ -308,12 +365,13 @@ class ParticleSet_Benchmark(ParticleSet):
             self.total_log.stop_timing()
             self.total_log.accumulate_timing()
             mem_B_used_total = 0
-            if MPI:
-                mpi_comm = MPI.COMM_WORLD
-                mem_B_used = self.process.memory_info().rss
-                mem_B_used_total = mpi_comm.reduce(mem_B_used, op=MPI.SUM, root=0)
-            else:
-                mem_B_used_total = self.process.memory_info().rss
+            # if MPI:
+            #     mpi_comm = MPI.COMM_WORLD
+            #     mem_B_used = self.process.memory_info().rss
+            #     mem_B_used_total = mpi_comm.reduce(mem_B_used, op=MPI.SUM, root=0)
+            # else:
+            #     mem_B_used_total = self.process.memory_info().rss
+            mem_B_used_total = self.process.memory_info().rss
             self.mem_log.advance_iteration(mem_B_used_total)
 
             self.compute_log.advance_iteration()
