@@ -232,7 +232,7 @@ def test_multi_kernel_reuse_varnames(fieldset, mode):
         particle.lon += add_lon
 
     def MoveEast2(particle, fieldset, time):
-        particle.lon += add_lon  # NOQA - no flake8 testing of this line
+        particle.lon += add_lon  # noga - no flake8 testing of this line
 
     pset = ParticleSet(fieldset, pclass=ptype[mode], lon=[0.5], lat=[0.5])
     pset.execute(pset.Kernel(MoveEast1) + pset.Kernel(MoveEast2),
