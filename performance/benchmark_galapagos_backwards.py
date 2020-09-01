@@ -1,4 +1,6 @@
-from parcels import FieldSet, Field, ParticleSet_Benchmark, JITParticle, AdvectionRK4, ErrorCode, Variable
+from parcels import FieldSet, JITParticle, AdvectionRK4, ErrorCode, Variable
+# from parcels.particleset_node_benchmark import ParticleSet_Benchmark
+from parcels.particleset_vectorized_benchmark import ParticleSet_Benchmark
 from datetime import timedelta as delta
 from glob import glob
 import numpy as np
@@ -56,7 +58,17 @@ def create_galapagos_fieldset(datahead, periodic_wrap, use_stokes):
     return fieldset, fU
 
 
-def plot(total_times = [], compute_times = [], io_times = [], memory_used = [], nparticles = [], imageFilePath = ""):
+def plot(total_times = None, compute_times = None, io_times = None, memory_used = None, nparticles = None, imageFilePath = ""):
+    if total_times is None:
+        total_times = []
+    if compute_times is None:
+        compute_times = []
+    if io_times is None:
+        io_times = []
+    if memory_used is None:
+        memory_used = []
+    if nparticles is None:
+        nparticles = []
     plot_t = []
     plot_ct = []
     plot_iot = []
@@ -85,10 +97,10 @@ def plot(total_times = [], compute_times = [], io_times = [], memory_used = [], 
     for i in range(0, len(nparticles)):
         plot_npart.append(nparticles[i] * npart_scaler)
 
+    plot_mem = []
     if memory_used is not None:
         #mem_scaler = (1*10)/(1024*1024*1024)
         mem_scaler = 1 / (1024 * 1024 * 1024)
-        plot_mem = []
         for i in range(0, len(memory_used)):
             plot_mem.append(memory_used[i] * mem_scaler)
 
@@ -154,6 +166,12 @@ def Age(particle, fieldset, time):
 def DeleteParticle(particle, fieldset, time):
     particle.delete()
 
+def RenewParticle(particle, fieldset, time):
+    dlon = -89.0 + 91.8
+    dlat = 0.7 + 1.4
+    particle.lat = np.random.rand() * dlon -91.8
+    particle.lon = np.random.rand() * dlat -1.4
+
 
 def periodicBC(particle, fieldSet, time):
     dlon = -89.0 + 91.8
@@ -178,8 +196,11 @@ if __name__=='__main__':
     parser.add_argument("-G", "--GC", dest="useGC", action='store_true', default=False, help="using a garbage collector (default: false)")
     args = parser.parse_args()
 
-    time_in_days = int(float(eval(args.time_in_days)))
     wstokes = args.stokes
+    imageFileName=args.imageFileName
+    periodicFlag=args.periodic
+    time_in_days = int(float(eval(args.time_in_days)))
+    with_GC = args.useGC
 
     headdir = ""
     odir = ""
@@ -208,7 +229,7 @@ if __name__=='__main__':
 
 
 
-    fieldset, fu = create_galapagos_fieldset(datahead, True, wstokes)
+    fieldset, fU = create_galapagos_fieldset(datahead, True, wstokes)
     fname = os.path.join(odir,"galapagosparticles_bwd_wstokes_v2.nc") if wstokes else os.path.join(odir,"galapagosparticles_bwd_v2.nc")
 
     galapagos_extent = [-91.8, -89, -1.4, 0.7]
@@ -216,6 +237,10 @@ if __name__=='__main__':
                                      np.arange(galapagos_extent[2], galapagos_extent[3], 0.2))
 
     pset = ParticleSet_Benchmark(fieldset=fieldset, pclass=GalapagosParticle, lon=startlon, lat=startlat, time=fU.grid.time[-1], repeatdt=delta(days=7))
+    """ Kernal + Execution"""
+    postProcessFuncs = []
+    if with_GC:
+        postProcessFuncs.append(perIterGC)
     outfile = pset.ParticleFile(name=fname, outputdt=delta(days=1))
     kernel = pset.Kernel(AdvectionRK4)+pset.Kernel(Age)+pset.Kernel(periodicBC)
 
@@ -232,7 +257,7 @@ if __name__=='__main__':
         #starttime = ostime.time()
         starttime = ostime.process_time()
 
-    pset.execute(kernel, dt=delta(hours=-1), output_file=outfile, recovery={ErrorCode.ErrorOutOfBounds: DeleteParticle})
+    pset.execute(kernel, dt=delta(hours=-1), output_file=outfile, recovery={ErrorCode.ErrorOutOfBounds: DeleteParticle}, postIterationCallbacks=postProcessFuncs, callbackdt=delta(days=1))
 
     if MPI:
         mpi_comm = MPI.COMM_WORLD
@@ -245,31 +270,38 @@ if __name__=='__main__':
         # endtime = ostime.time()
         endtime = ostime.process_time()
 
+    size_Npart = len(pset.nparticle_log)
+    Npart = pset.nparticle_log.get_param(size_Npart-1)
     if MPI:
         mpi_comm = MPI.COMM_WORLD
+        Npart = mpi_comm.reduce(Npart, op=MPI.SUM, root=0)
         if mpi_comm.Get_rank() == 0:
-            size_Npart = len(pset.nparticle_log.params)
             if size_Npart>0:
-                sys.stdout.write("final # particles: {}\n".format(pset.nparticle_log.params[size_Npart-1]))
+                sys.stdout.write("final # particles: {}\n".format( Npart ))
             sys.stdout.write("Time of pset.execute(): {} sec.\n".format(endtime-starttime))
-            avg_time = np.mean(np.array(pset.total_log.times_steps, dtype=np.float64))
+            avg_time = np.mean(np.array(pset.total_log.get_values(), dtype=np.float64))
             sys.stdout.write("Avg. kernel update time: {} msec.\n".format(avg_time*1000.0))
     else:
-        size_Npart = len(pset.nparticle_log.params)
         if size_Npart > 0:
-            sys.stdout.write("final # particles: {}\n".format(pset.nparticle_log.params[size_Npart - 1]))
+            sys.stdout.write("final # particles: {}\n".format( Npart ))
         sys.stdout.write("Time of pset.execute(): {} sec.\n".format(endtime - starttime))
-        avg_time = np.mean(np.array(pset.total_log.times_steps, dtype=np.float64))
+        avg_time = np.mean(np.array(pset.total_log.get_values(), dtype=np.float64))
         sys.stdout.write("Avg. kernel update time: {} msec.\n".format(avg_time * 1000.0))
 
     outfile.close()
 
     if MPI:
         mpi_comm = MPI.COMM_WORLD
-        mpi_comm.Barrier()
+        Nparticles = mpi_comm.reduce(np.array(pset.nparticle_log.get_params()), op=MPI.SUM, root=0)
+        Nmem = mpi_comm.reduce(np.array(pset.mem_log.get_params()), op=MPI.SUM, root=0)
+        # mpi_comm.Barrier()
         if mpi_comm.Get_rank() == 0:
             # plot(perflog.samples, perflog.times_steps, perflog.memory_steps, pset.compute_log.times_steps, pset.io_log.times_steps, os.path.join(odir, args.imageFileName))
-            plot(pset.total_log.times_steps, pset.compute_log.times_steps, pset.io_log.times_steps, pset.mem_log.params, pset.nparticle_log.params, os.path.join(odir, args.imageFileName))
+            # plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
+            plot(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), Nmem, Nparticles, os.path.join(odir, args.imageFileName))
     else:
         # plot(perflog.samples, perflog.times_steps, perflog.memory_steps, pset.compute_log.times_steps, pset.io_log.times_steps, os.path.join(odir, args.imageFileName))
-        plot(pset.total_log.times_steps, pset.compute_log.times_steps, pset.io_log.times_steps, pset.mem_log.params, pset.nparticle_log.params, os.path.join(odir, args.imageFileName))
+        plot(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), os.path.join(odir, args.imageFileName))
+
+    print('Execution finished')
+    exit(0)
