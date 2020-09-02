@@ -6,6 +6,8 @@ Date: 11-02-2020
 from parcels import AdvectionEE, AdvectionRK45, AdvectionRK4
 from parcels import FieldSet, ScipyParticle, JITParticle, Variable, AdvectionRK4, RectilinearZGrid, ErrorCode
 from parcels.particleset_node_benchmark import ParticleSet_Benchmark as ParticleSet
+# from parcels.particleset_vectorized_benchmark import ParticleSet_Benchmark as ParticleSet
+# from parcels.kernel_benchmark import Kernel_Benchmark as Kernel
 from parcels.field import Field, VectorField, NestedField, SummedField
 from parcels.tools import idgen
 # from parcels import plotTrajectoriesFile_loadedField
@@ -15,14 +17,11 @@ from argparse import ArgumentParser
 import datetime
 import numpy as np
 import xarray as xr
-# import pytest
 import fnmatch
-import psutil
 import gc
 import os
 import time as ostime
 import matplotlib.pyplot as plt
-# from parcels.tools import perlin3d
 
 from parcels import rng as random
 
@@ -31,12 +30,12 @@ try:
     from mpi4py import MPI
 except:
     MPI = None
-with_GC = False
+# with_GC = False
 
 pset = None
 
 
-ptype = {'scipy': ScipyParticle, 'jit': JITParticle}
+# ptype = {'scipy': ScipyParticle, 'jit': JITParticle}
 method = {'RK4': AdvectionRK4, 'EE': AdvectionEE, 'RK45': AdvectionRK45}
 global_t_0 = 0
 Nparticle = int(math.pow(2,10)) # equals to Nparticle = 1024
@@ -54,40 +53,7 @@ a = 10000 * 1e3
 b = 10000 * 1e3
 scalefac = 0.05  # to scale for physically meaningful velocities
 
-class PerformanceLog():
-    samples = []
-    times_steps = []
-    memory_steps = []
-    Nparticles_step = []
-    _iter = 0
-
-    def advance(self):
-        if MPI:
-            mpi_comm = MPI.COMM_WORLD
-            mpi_rank = mpi_comm.Get_rank()
-            process = psutil.Process(os.getpid())
-            mem_B_used = process.memory_info().rss
-            mem_B_used_total = mpi_comm.reduce(mem_B_used, op=MPI.SUM, root=0)
-            if pset is not None:
-                Nparticles_local = len(pset)
-                Nparticles_global = mpi_comm.reduce(Nparticles_local, op=MPI.SUM, root=0)
-            if mpi_rank == 0:
-                self.times_steps.append(ostime.process_time())
-                self.memory_steps.append(mem_B_used_total)
-                if pset is not None:
-                    self.Nparticles_step.append(Nparticles_global)
-                self.samples.append(self._iter)
-                self._iter+=1
-        else:
-            process = psutil.Process(os.getpid())
-            self.times_steps.append(ostime.process_time())
-            self.memory_steps.append(process.memory_info().rss)
-            if pset is not None:
-                self.Nparticles_step.append(len(pset))
-            self.samples.append(self._iter)
-            self._iter+=1
-
-def plot_internal(total_times = None, compute_times = None, io_times = None, memory_used = None, nparticles = None, imageFilePath = ""):
+def plot(total_times = None, compute_times = None, io_times = None, memory_used = None, nparticles = None, imageFilePath = ""):
     if total_times is None:
         total_times = []
     if compute_times is None:
@@ -120,10 +86,10 @@ def plot_internal(total_times = None, compute_times = None, io_times = None, mem
     for i in range(0, len(nparticles)):
         plot_npart.append(nparticles[i] * npart_scaler)
 
+    plot_mem = []
     if memory_used is not None:
         #mem_scaler = (1*10)/(1024*1024*1024)
         mem_scaler = 1 / (1024 * 1024 * 1024)
-        plot_mem = []
         for i in range(0, len(memory_used)):
             plot_mem.append(memory_used[i] * mem_scaler)
 
@@ -167,34 +133,6 @@ def plot_internal(total_times = None, compute_times = None, io_times = None, mem
     sys.stdout.write("cumulative total runtime: {}\n".format(cum_t))
     sys.stdout.write("cumulative compute time: {}\n".format(cum_ct))
     sys.stdout.write("cumulative I/O time: {}\n".format(cum_iot))
-
-def plot(x, times, memory_used, nparts, imageFilePath):
-    plot_t = []
-    t_scaler = 1. * 10./1.0
-    for i in range(len(times)):
-        if i==0:
-            plot_t.append( (times[i]-global_t_0)*t_scaler )
-        else:
-            plot_t.append( (times[i]-times[i-1])*t_scaler )
-    mem_scaler = (1*10)/(1024*1024*1024)
-    plot_mem = []
-    for i in range(len(memory_used)):
-        plot_mem.append(memory_used[i] * mem_scaler)
-    npart_scaler = 1.0 / 1000.0
-    plot_npart = []
-    for i in range(len(nparts)):
-        plot_npart.append(nparts[i] * npart_scaler)
-
-
-    fig, ax = plt.subplots(1, 1, figsize=(21, 12))
-    ax.plot(x, plot_t, 'o-', label="time_spent [100ms]")
-    ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [100 MB]")
-    ax.plot(x, plot_npart, '-', label="sim. particles [# 1000]")
-    plt.xlim([0, 730])
-    plt.ylim([0, 120])
-    plt.legend()
-    ax.set_xlabel('iteration')
-    plt.savefig(os.path.join(odir, imageFilePath), dpi=600, format='png')
 
 def DeleteParticle(particle, fieldset, time):
     particle.delete()
@@ -339,7 +277,7 @@ def Age(particle, fieldset, time):
     if particle.age > particle.life_expectancy:
         particle.delete()
 
-
+ptype = {'scipy': StommelParticleS, 'jit': StommelParticleJ}
 age_ptype = {'scipy': AgeParticle_SciPy, 'jit': AgeParticle_JIT}
 
 if __name__=='__main__':
@@ -577,20 +515,14 @@ if __name__=='__main__':
     delete_func = RenewParticle
     if args.delete_particle:
         delete_func=DeleteParticle
-
-    # perflog = PerformanceLog()
-    # postProcessFuncs = [perflog.advance,]
     postProcessFuncs = []
 
     if MPI:
         mpi_comm = MPI.COMM_WORLD
         mpi_rank = mpi_comm.Get_rank()
         if mpi_rank==0:
-            # starttime = ostime.time()
-            # starttime = MPI.Wtime()
             starttime = ostime.process_time()
     else:
-        # starttime = ostime.time()
         starttime = ostime.process_time()
     kernels = pset.Kernel(AdvectionRK4,delete_cfiles=True)
     if agingParticles:
@@ -617,31 +549,6 @@ if __name__=='__main__':
             endtime = ostime.process_time()
     else:
         endtime = ostime.process_time()
-
-    # if MPI:
-    #     mpi_comm = MPI.COMM_WORLD
-    #     if mpi_comm.Get_rank() == 0:
-    #         dt_time = []
-    #         for i in range(len(perflog.times_steps)):
-    #             if i==0:
-    #                 dt_time.append( (perflog.times_steps[i]-global_t_0) )
-    #             else:
-    #                 dt_time.append( (perflog.times_steps[i]-perflog.times_steps[i-1]) )
-    #         sys.stdout.write("final # particles: {}\n".format(perflog.Nparticles_step[len(perflog.Nparticles_step)-1]))
-    #         sys.stdout.write("Time of pset.execute(): {} sec.\n".format(endtime-starttime))
-    #         avg_time = np.mean(np.array(dt_time, dtype=np.float64))
-    #         sys.stdout.write("Avg. kernel update time: {} msec.\n".format(avg_time*1000.0))
-    # else:
-    #     dt_time = []
-    #     for i in range(len(perflog.times_steps)):
-    #         if i == 0:
-    #             dt_time.append((perflog.times_steps[i] - global_t_0))
-    #         else:
-    #             dt_time.append((perflog.times_steps[i] - perflog.times_steps[i - 1]))
-    #     sys.stdout.write("final # particles: {}\n".format(perflog.Nparticles_step[len(perflog.Nparticles_step)-1]))
-    #     sys.stdout.write("Time of pset.execute(): {} sec.\n".format(endtime - starttime))
-    #     avg_time = np.mean(np.array(dt_time, dtype=np.float64))
-    #     sys.stdout.write("Avg. kernel update time: {} msec.\n".format(avg_time * 1000.0))
 
     size_Npart = len(pset.nparticle_log)
     Npart = pset.nparticle_log.get_param(size_Npart-1)
@@ -679,11 +586,12 @@ if __name__=='__main__':
         if mpi_comm.Get_rank() == 0:
             # plot(perflog.samples, perflog.times_steps, perflog.memory_steps, perflog.Nparticles_step, os.path.join(odir, imageFileName))
             # plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
-            plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), Nmem, Nparticles, imageFileName)
+            plot(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), Nmem, Nparticles, imageFileName)
     else:
         # plot(perflog.samples, perflog.times_steps, perflog.memory_steps, perflog.Nparticles_step, os.path.join(odir, imageFileName))
-        plot_internal(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
+        plot(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
     # idgen.close()
     # del idgen
+    print('Execution finished')
     exit(0)
 
