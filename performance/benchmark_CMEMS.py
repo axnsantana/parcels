@@ -76,8 +76,8 @@ def plot(total_times = None, compute_times = None, io_times = None, memory_used 
         plot_npart.append(nparticles[i] * npart_scaler)
 
     if memory_used is not None:
-        mem_scaler = (1*10)/(1024 * 1024 * 1024)
-        # mem_scaler = 1 / (1024 * 1024 * 1024)
+        # mem_scaler = (1*10)/(1024 * 1024 * 1024)
+        mem_scaler = 1 / (1024 * 1024 * 1024)
         plot_mem = []
         for i in range(0, len(memory_used)):
             plot_mem.append(memory_used[i] * mem_scaler)
@@ -103,14 +103,17 @@ def plot(total_times = None, compute_times = None, io_times = None, memory_used 
         x.append(i)
 
     fig, ax = plt.subplots(1, 1, figsize=(21, 12))
+    # ax.plot(x, plot_t, 'o-', label="total time_spent [100ms]")
     ax.plot(x, plot_t, 'o-', label="total time_spent [500ms]")
+    # ax.plot(x, plot_ct, 'o-', label="compute time_spent [100ms]")
     ax.plot(x, plot_ct, 'o-', label="compute time_spent [500ms]")
     # == this is still the part that breaks - as they are on different time scales, possibly leave them out ? == #
     if do_iot_plot:
+        # ax.plot(x, plot_iot, 'o-', label="io time_spent [100ms]")
         ax.plot(x, plot_iot, 'o-', label="io time_spent [500ms]")
     if (memory_used is not None) and do_mem_plot:
-        ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [100 MB]")
-        # ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [1 GB]")
+        # ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [100 MB]")
+        ax.plot(x, plot_mem, 'x-', label="memory_used (cumulative) [1 GB]")
     if do_npart_plot:
         ax.plot(x, plot_npart, '-', label="sim. particles [# 1000]")
     plt.xlim([0, 730])
@@ -154,10 +157,12 @@ def periodicBC(particle, fieldSet, time):
         particle.lon -= 360.0
     if particle.lon < -180.0:
         particle.lon += 360.0
-    if particle.lat > 90.0:
-        particle.lat -= 170.0
-    if particle.lat < -80.0:
-        particle.lat += 170.0
+    particle.lat = min(particle.lat, 90.0)
+    particle.lat = max(particle.lat, -80.0)
+    # if particle.lat > 90.0:
+    #     particle.lat -= 160.0
+    # if particle.lat < -80.0:
+    #     particle.lat += 160.0
 
 def initialize(particle, fieldset, time):
     if particle.initialized_dynamic < 1:
@@ -350,7 +355,6 @@ if __name__=='__main__':
     delete_func = RenewParticle
     if args.delete_particle:
         delete_func=DeleteParticle
-
     postProcessFuncs = []
 
     if MPI:
@@ -430,4 +434,5 @@ if __name__=='__main__':
         plot(pset.total_log.get_values(), pset.compute_log.get_values(), pset.io_log.get_values(), pset.mem_log.get_params(), pset.nparticle_log.get_params(), imageFileName)
     # idgen.close()
     # del idgen
+    print('Execution finished')
     exit(0)
